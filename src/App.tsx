@@ -251,7 +251,7 @@ function App() {
 							className="rounded border border-blue-600 px-2 py-1 dark:border-blue-400"
 							onClick={notify}
 						>
-							Test
+							Test notification
 						</button>
 					</div>
 				</div>

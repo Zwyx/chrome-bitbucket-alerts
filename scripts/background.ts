@@ -268,21 +268,21 @@ const processAlert = async (
 			log("Pull request statuses are:");
 			log(pullRequestStatuses);
 
-			const latestBuildState = pullRequestStatuses.values[0]?.state;
+			const newBuildState = pullRequestStatuses.values[0]?.state;
 
-			if (latestBuildState && latestBuildState !== alert.buildState) {
-				alert.buildState = latestBuildState;
+			if (newBuildState && newBuildState !== alert.buildState) {
+				alert.buildState = newBuildState;
 				alert.lastChange = seconds;
 
-				log(`Build state is now: ${latestBuildState}`);
+				log(`Pull request build state is now: ${newBuildState}`);
 
-				notify(
-					latestBuildState === "SUCCESSFUL"
-						? "Build complete"
-						: "Build failed!",
-					`${alert.repository}\n${alert.sourceBranch}`,
-					latestBuildState === "SUCCESSFUL" ? undefined : true,
-				);
+				if (newBuildState !== "INPROGRESS") {
+					notify(
+						newBuildState === "SUCCESSFUL" ? "Build complete" : "Build failed!",
+						`${alert.repository}\n${alert.sourceBranch}`,
+						newBuildState === "SUCCESSFUL" ? undefined : true,
+					);
+				}
 			}
 		} else {
 			log(`Pull request is now: ${pullRequest.state}`);
@@ -335,25 +335,27 @@ const processAlert = async (
 		log("Merge commit statuses are:");
 		log(mergeCommitStatuses);
 
-		const latestBuildState = mergeCommitStatuses.values[0]?.state;
+		const newBuildState = mergeCommitStatuses.values[0]?.state;
 
-		if (latestBuildState && latestBuildState !== alert.buildState) {
-			alert.buildState = latestBuildState;
+		if (newBuildState && newBuildState !== alert.buildState) {
+			alert.buildState = newBuildState;
 			alert.lastChange = seconds;
 
-			log(`Build state is now: ${latestBuildState}`);
+			log(`Merge commit build state is now: ${newBuildState}`);
 
-			notify(
-				latestBuildState === "SUCCESSFUL" ? "Build complete" : "Build failed!",
-				`${alert.repository}\n${alert.destinationBranch}`,
-				latestBuildState === "SUCCESSFUL" ? undefined : true,
-				latestBuildState === "SUCCESSFUL"
-					? {
-							title: "Open Octopus",
-							link: `https://octopus.${alert.organisation}.io/app#/Spaces-1/projects/${alert.repository}/overview`,
-					  }
-					: undefined,
-			);
+			if (newBuildState !== "INPROGRESS") {
+				notify(
+					newBuildState === "SUCCESSFUL" ? "Build complete" : "Build failed!",
+					`${alert.repository}\n${alert.destinationBranch}`,
+					newBuildState === "SUCCESSFUL" ? undefined : true,
+					newBuildState === "SUCCESSFUL"
+						? {
+								title: "Open Octopus",
+								link: `https://octopus.${alert.organisation}.io/app#/Spaces-1/projects/${alert.repository}/overview`,
+						  }
+						: undefined,
+				);
+			}
 		}
 	}
 };
@@ -393,4 +395,4 @@ setInterval(async () => {
 	log("Finished!");
 
 	workInProgress = false;
-}, 60e3);
+}, 30e3);
