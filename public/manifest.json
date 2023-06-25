@@ -1,0 +1,23 @@
+{
+	"name": "BitBucket Build Alerts",
+	"version": "1.0",
+	"description": "Alerts for builds on BitBucket",
+	"icons": {
+		"128": "favicon-green.png"
+	},
+	"manifest_version": 3,
+	"permissions": ["storage", "notifications"],
+	"action": {
+		"default_popup": "index.html",
+		"default_title": "BitBucket Build Alerts"
+	},
+	"background": {
+		"service_worker": "background.js"
+	},
+	"content_scripts": [
+		{
+			"matches": ["https://bitbucket.org/*", "https://www.bitbucket.org/*"],
+			"js": ["content.js"]
+		}
+	]
+}

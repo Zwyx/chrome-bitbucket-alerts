@@ -12,4 +12,13 @@ module.exports = {
 	rules: {
 		"react-refresh/only-export-components": "warn",
 	},
+	overrides: [
+		{
+			// to prevent `'module' is not defined` at the top of this file
+			files: ["**/*.cjs"],
+			env: {
+				node: true,
+			},
+		},
+	],
 };
