@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc && vite build && tsc -p tsconfig.scripts.json",
+		"pack:firefox": "npm run build && cp firefox/* dist && cd dist && 7z a chrome-bitbucket-alerts.xpi *",
 		"lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
 		"preview": "vite preview",
 		"eslint": "eslint .",
