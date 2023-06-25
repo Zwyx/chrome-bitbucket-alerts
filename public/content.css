@@ -1,0 +1,9 @@
+@keyframes chrome-bitbucket-alerts-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.chrome-bitbucket-alerts-spin {
+	animation: chrome-bitbucket-alerts-spin 1s linear infinite;
+}

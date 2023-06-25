@@ -1,8 +1,11 @@
+const LOG_ACTIVE = true;
+
 const ALERTS_STORAGE_KEY = "chrome-bitbucket-alerts-alerts";
 const USERNAME_STORAGE_KEY = "chrome-bitbucket-alerts-username";
 const APP_PASSWORD_STORAGE_KEY = "chrome-bitbucket-alerts-app-password";
 const REQUIRE_INTERACTION_STORAGE_KEY =
 	"chrome-bitbucket-alerts-require-interaction";
+
 const BASE_API_URL = "https://api.bitbucket.org/2.0/repositories";
 
 interface BitBucketPullRequest {
@@ -36,10 +39,20 @@ interface Alert {
 // Dodgy way of differentiating Chrome and Firefox
 const firefox = typeof window !== "undefined" && "browser" in window;
 
+const log = (...args: unknown[]) => {
+	if (LOG_ACTIVE) {
+		console.info(...args);
+	}
+};
+
 chrome.runtime.onMessage.addListener(
-	(message: Pick<Alert, "organisation" | "repository" | "pullRequest">) => {
-		console.info("Message received:");
-		console.info(message);
+	(
+		message: Pick<Alert, "organisation" | "repository" | "pullRequest">,
+		_,
+		sendResponse,
+	) => {
+		log("Message received:");
+		log(message);
 
 		chrome.storage.sync
 			.get(ALERTS_STORAGE_KEY)
@@ -49,7 +62,8 @@ chrome.runtime.onMessage.addListener(
 				const newAlertId = `${message.organisation}--${message.repository}--${message.pullRequest}`;
 
 				if (alerts.filter(({ id }) => id === newAlertId).length) {
-					console.info("Alert already exists.");
+					log("Alert already exists.");
+					sendResponse({ alreadyExists: true });
 					return;
 				}
 
@@ -57,13 +71,41 @@ chrome.runtime.onMessage.addListener(
 
 				const newAlerts = [newAlert, ...alerts];
 
-				console.info("Alerts are now:");
-				console.info(newAlerts);
+				log("Alerts are now:");
+				log(newAlerts);
 
-				chrome.storage.sync.set({ [ALERTS_STORAGE_KEY]: newAlerts });
+				chrome.storage.sync
+					.set({ [ALERTS_STORAGE_KEY]: newAlerts })
+					.then(() => {
+						getAuthToken(true)
+							.then((authToken) =>
+								processAlert(newAlert, authToken, true)
+									.then(() => {
+										chrome.storage.sync.set({
+											[ALERTS_STORAGE_KEY]: newAlerts,
+										});
+										sendResponse({ confirmed: true });
+									})
+									.catch((e) => {
+										sendResponse({
+											error: e,
+											message:
+												"Error. The page you're on might have been incorrectly recognised as a pull request.",
+										});
+									}),
+							)
+							.catch((e) => {
+								sendResponse({
+									error: e,
+									message:
+										"Error. BitBucket credentials are missing. Open the extension's dialog.",
+								});
+							});
+					});
+			})
+			.catch((e) => sendResponse({ error: e }));
 
-				getAuthToken().then((authToken) => processAlert(newAlert, authToken));
-			});
+		return true; // to be able to use `sendResponse` asynchronously
 	},
 );
 
@@ -95,7 +137,7 @@ chrome.notifications.onButtonClicked.addListener((notificationId) =>
 	chrome.tabs.create({ url: notificationId }),
 );
 
-const getAuthToken = async (): Promise<string> => {
+const getAuthToken = async (throwOnError?: boolean): Promise<string> => {
 	const username = (await chrome.storage.sync.get(USERNAME_STORAGE_KEY))[
 		USERNAME_STORAGE_KEY
 	];
@@ -103,17 +145,25 @@ const getAuthToken = async (): Promise<string> => {
 		APP_PASSWORD_STORAGE_KEY
 	];
 
+	if ((!username || !appPassword) && throwOnError) {
+		throw new Error("Missing BitBucket credentials.");
+	}
+
 	return btoa(`${username}:${appPassword}`);
 };
 
-const processAlert = async (alert: Alert, authToken: string) => {
+const processAlert = async (
+	alert: Alert,
+	authToken: string,
+	throwOnError?: boolean,
+) => {
 	const seconds = new Date().getSeconds();
 
-	console.info("Processing alert:");
-	console.info(alert);
+	log("Processing alert:");
+	log(alert);
 
 	if (alert.pullRequestState === "DECLINED") {
-		console.info("Pull request is declined. Exiting.");
+		log("Pull request is declined. Exiting.");
 		return;
 	}
 
@@ -126,7 +176,7 @@ const processAlert = async (alert: Alert, authToken: string) => {
 			? "<30d"
 			: "old";
 
-	console.info(`Pull request age is ${age}`);
+	log(`Pull request age is ${age}`);
 
 	const minutes = new Date().getMinutes();
 
@@ -135,12 +185,12 @@ const processAlert = async (alert: Alert, authToken: string) => {
 		(age === "<30d" && minutes !== 0) ||
 		(age === "<7d" && minutes % 10 !== minutes / 10)
 	) {
-		console.info(`Delaying request. Exiting.`);
+		log(`Delaying request. Exiting.`);
 		return;
 	}
 
 	if (!alert.pullRequestState || alert.pullRequestState === "OPEN") {
-		console.info("Requesting pull request...");
+		log("Requesting pull request...");
 
 		let pullRequestRes: Response;
 
@@ -155,25 +205,33 @@ const processAlert = async (alert: Alert, authToken: string) => {
 					},
 				},
 			);
-		} catch {
+		} catch (e) {
+			if (throwOnError) {
+				throw e;
+			}
+
 			return;
 		}
 
 		if (pullRequestRes.status !== 200) {
+			if (throwOnError) {
+				throw new Error("BitBucket response isn't 200");
+			}
+
 			return;
 		}
 
 		const pullRequest: BitBucketPullRequest = await pullRequestRes.json();
 
-		console.info("Pull request is:");
-		console.info(pullRequest);
+		log("Pull request is:");
+		log(pullRequest);
 
 		alert.pullRequestState = pullRequest.state;
 		alert.sourceBranch = pullRequest.source.branch.name;
 		alert.destinationBranch = pullRequest.destination.branch.name;
 
 		if (pullRequest.state === "OPEN") {
-			console.info("Requesting pull request statuses...");
+			log("Requesting pull request statuses...");
 
 			let pullRequestStatusesRes: Response;
 
@@ -188,19 +246,27 @@ const processAlert = async (alert: Alert, authToken: string) => {
 						},
 					},
 				);
-			} catch {
+			} catch (e) {
+				if (throwOnError) {
+					throw e;
+				}
+
 				return;
 			}
 
 			if (pullRequestStatusesRes.status !== 200) {
+				if (throwOnError) {
+					throw new Error("BitBucket response isn't 200");
+				}
+
 				return;
 			}
 
 			const pullRequestStatuses: BitBucketStatuses =
 				await pullRequestStatusesRes.json();
 
-			console.info("Pull request statuses are:");
-			console.info(pullRequestStatuses);
+			log("Pull request statuses are:");
+			log(pullRequestStatuses);
 
 			const latestBuildState = pullRequestStatuses.values[0]?.state;
 
@@ -208,7 +274,7 @@ const processAlert = async (alert: Alert, authToken: string) => {
 				alert.buildState = latestBuildState;
 				alert.lastChange = seconds;
 
-				console.info(`Build state is now: ${latestBuildState}`);
+				log(`Build state is now: ${latestBuildState}`);
 
 				notify(
 					latestBuildState === "SUCCESSFUL"
@@ -219,7 +285,7 @@ const processAlert = async (alert: Alert, authToken: string) => {
 				);
 			}
 		} else {
-			console.info(`Pull request is now: ${pullRequest.state}`);
+			log(`Pull request is now: ${pullRequest.state}`);
 
 			alert.pullRequestState = pullRequest.state;
 			alert.buildState = undefined;
@@ -232,7 +298,7 @@ const processAlert = async (alert: Alert, authToken: string) => {
 	}
 
 	if (alert.pullRequestState === "MERGED") {
-		console.info("Requesting merge commit statuses...");
+		log("Requesting merge commit statuses...");
 
 		let mergeCommitStatusesRes: Response;
 
@@ -247,19 +313,27 @@ const processAlert = async (alert: Alert, authToken: string) => {
 					},
 				},
 			);
-		} catch {
+		} catch (e) {
+			if (throwOnError) {
+				throw e;
+			}
+
 			return;
 		}
 
 		if (mergeCommitStatusesRes.status !== 200) {
+			if (throwOnError) {
+				throw new Error("BitBucket response isn't 200");
+			}
+
 			return;
 		}
 
 		const mergeCommitStatuses: BitBucketStatuses =
 			await mergeCommitStatusesRes.json();
 
-		console.info("Merge commit statuses are:");
-		console.info(mergeCommitStatuses);
+		log("Merge commit statuses are:");
+		log(mergeCommitStatuses);
 
 		const latestBuildState = mergeCommitStatuses.values[0]?.state;
 
@@ -267,7 +341,7 @@ const processAlert = async (alert: Alert, authToken: string) => {
 			alert.buildState = latestBuildState;
 			alert.lastChange = seconds;
 
-			console.info(`Build state is now: ${latestBuildState}`);
+			log(`Build state is now: ${latestBuildState}`);
 
 			notify(
 				latestBuildState === "SUCCESSFUL" ? "Build complete" : "Build failed!",
@@ -287,7 +361,7 @@ const processAlert = async (alert: Alert, authToken: string) => {
 let workInProgress = false;
 
 setInterval(async () => {
-	console.log("Starting work...");
+	log("Starting work...");
 
 	if (workInProgress) {
 		return;
@@ -299,11 +373,11 @@ setInterval(async () => {
 		ALERTS_STORAGE_KEY
 	];
 
-	console.info("Alerts");
-	console.info(alerts);
+	log("Alerts");
+	log(alerts);
 
 	if (!alerts) {
-		console.info("No alerts. Exiting.");
+		log("No alerts. Exiting.");
 		workInProgress = false;
 		return;
 	}
@@ -316,7 +390,7 @@ setInterval(async () => {
 
 	chrome.storage.sync.set({ [ALERTS_STORAGE_KEY]: alerts });
 
-	console.info("Finished!");
+	log("Finished!");
 
 	workInProgress = false;
 }, 60e3);

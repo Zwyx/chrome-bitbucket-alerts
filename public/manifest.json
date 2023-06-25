@@ -19,5 +19,11 @@
 			"matches": ["https://bitbucket.org/*", "https://www.bitbucket.org/*"],
 			"js": ["content.js"]
 		}
+	],
+	"web_accessible_resources": [
+		{
+			"matches": ["https://bitbucket.org/*", "https://www.bitbucket.org/*"],
+			"resources": ["content.css"]
+		}
 	]
 }

@@ -8,6 +8,7 @@ const USERNAME_STORAGE_KEY = "chrome-bitbucket-alerts-username";
 const APP_PASSWORD_STORAGE_KEY = "chrome-bitbucket-alerts-app-password";
 const REQUIRE_INTERACTION_STORAGE_KEY =
 	"chrome-bitbucket-alerts-require-interaction";
+
 const BASE_PULL_REQUEST_URL = "https://bitbucket.org";
 
 interface BitBucketPullRequest {

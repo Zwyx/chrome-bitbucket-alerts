@@ -20,6 +20,12 @@
 			"js": ["content.js"]
 		}
 	],
+	"web_accessible_resources": [
+		{
+			"matches": ["https://bitbucket.org/*", "https://www.bitbucket.org/*"],
+			"resources": ["content.css"]
+		}
+	],
 	"browser_specific_settings": {
 		"gecko": {
 			"id": "{79526de9-20a8-4b99-9cc4-d1298c8443d5}"
