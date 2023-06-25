@@ -1,4 +1,9 @@
-import { LucideBellPlus, LucideSettings, LucideTrash2 } from "lucide-react";
+import {
+	LucideArrowRight,
+	LucideBellPlus,
+	LucideSettings,
+	LucideTrash2,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "./utils";
 import favicon from "/favicon-green.png";
@@ -155,6 +160,15 @@ function App() {
 		<div className="flex max-h-[550px] w-[500px] flex-col gap-6 overflow-auto p-8">
 			<div className="flex justify-between">
 				<img src={favicon} width={20} alt="logo" />
+
+				{(!username || !appPassword) && !settingsView && (
+					<div className="mx-2 flex flex-1 items-center justify-end text-orange-500">
+						<div className="mr-1 text-sm leading-none">
+							Configure your BitBucket credentials
+						</div>
+						<LucideArrowRight size={20} />
+					</div>
+				)}
 
 				<button
 					onClick={() =>
