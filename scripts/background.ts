@@ -1,4 +1,4 @@
-const LOG_ACTIVE = true;
+const LOG_ACTIVE = false;
 
 const ALERTS_STORAGE_KEY = "chrome-bitbucket-alerts-alerts";
 const USERNAME_STORAGE_KEY = "chrome-bitbucket-alerts-username";
