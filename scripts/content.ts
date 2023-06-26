@@ -13,9 +13,9 @@ const urlRegex = RegExp(
 new MutationObserver(() => {
 	const match = location.href.match(urlRegex);
 
-	const button = document.getElementById(BUTTON_ID);
+	const existingButton = document.getElementById(BUTTON_ID);
 
-	if (match && !button) {
+	if (match && !existingButton) {
 		const nav = document.getElementsByTagName("nav")[0];
 
 		if (!nav) {
@@ -59,6 +59,7 @@ new MutationObserver(() => {
 
 				chrome.runtime
 					.sendMessage({
+						type: "new-alert",
 						organisation: match[1],
 						repository: match[2],
 						pullRequest: match[3],
@@ -94,7 +95,7 @@ new MutationObserver(() => {
 		};
 
 		nav.appendChild(button);
-	} else if (!match && button) {
-		button.remove();
+	} else if (!match && existingButton) {
+		existingButton.remove();
 	}
 }).observe(document.body, { childList: true, subtree: true });

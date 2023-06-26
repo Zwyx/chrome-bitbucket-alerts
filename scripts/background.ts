@@ -24,6 +24,15 @@ interface BitBucketStatuses {
 	values: BitBucketBuild[];
 }
 
+interface BitBucketTag {
+	name: string;
+	target: { type: string; hash: string };
+}
+
+interface BitBucketTags {
+	values: BitBucketTag[];
+}
+
 interface Alert {
 	id: string;
 	organisation: string;
@@ -34,6 +43,8 @@ interface Alert {
 	pullRequestState?: BitBucketPullRequest["state"];
 	buildState?: BitBucketBuild["state"];
 	mergeCommitHash?: string;
+	buildTag?: string;
+	toBeDeleted?: boolean;
 	lastChange?: number;
 	old?: boolean;
 }
@@ -47,67 +58,181 @@ const log = (...args: unknown[]) => {
 	}
 };
 
+let workInProgress = false;
+
+const waitForRunwayClear = () =>
+	new Promise<void>((resolve) => {
+		if (!workInProgress) {
+			resolve();
+			return;
+		}
+
+		log("Runway busy");
+
+		const interval = setInterval(() => {
+			log("Waiting for runway to clear...");
+
+			if (!workInProgress) {
+				clearInterval(interval);
+				resolve();
+			}
+		}, 1e3);
+	});
+
+const createAlert = async (
+	newAlert: Alert,
+	sendResponse: (response?: unknown) => void,
+) => {
+	await waitForRunwayClear();
+
+	workInProgress = true;
+
+	let storedAlerts: Alert[] | null;
+
+	try {
+		storedAlerts = (await chrome.storage.sync.get(ALERTS_STORAGE_KEY))[
+			ALERTS_STORAGE_KEY
+		];
+	} catch (e) {
+		sendResponse({
+			error: e,
+			message: "Error. There seems to be a problem with browser storage.",
+		});
+		workInProgress = false;
+		return;
+	}
+
+	const alerts: Alert[] = Array.isArray(storedAlerts) ? storedAlerts : [];
+
+	if (alerts.filter(({ id }) => id === newAlert.id).length) {
+		log("Alert already exists.");
+		sendResponse({ alreadyExists: true });
+		workInProgress = false;
+		return;
+	}
+
+	const newAlerts = [newAlert, ...alerts];
+
+	log("Alerts are now:");
+	log(newAlerts);
+
+	try {
+		await chrome.storage.sync.set({ [ALERTS_STORAGE_KEY]: newAlerts });
+	} catch (e) {
+		sendResponse({
+			error: e,
+			message: "Error. There seems to be a problem with browser storage.",
+		});
+		workInProgress = false;
+		return;
+	}
+
+	let authToken: string;
+
+	try {
+		authToken = await getAuthToken(true);
+	} catch (e) {
+		sendResponse({
+			error: e,
+			message:
+				"Error. BitBucket credentials are missing. Open the extension's dialog.",
+		});
+		workInProgress = false;
+		return;
+	}
+
+	try {
+		await processAlertInPlace(newAlert, authToken, true);
+	} catch (e) {
+		sendResponse({
+			error: e,
+			message:
+				"Error. The page you're on might have been incorrectly recognised as a pull request.",
+		});
+		workInProgress = false;
+		return;
+	}
+
+	try {
+		chrome.storage.sync.set({ [ALERTS_STORAGE_KEY]: newAlerts });
+	} catch (e) {
+		sendResponse({
+			error: e,
+			message: "Error. There seems to be a problem with browser storage.",
+		});
+		workInProgress = false;
+		return;
+	}
+
+	sendResponse({ confirmed: true });
+	workInProgress = false;
+};
+
+const removeAlert = async (id: string) => {
+	await waitForRunwayClear();
+
+	workInProgress = true;
+
+	log("Removing alert...");
+
+	let storedAlerts: Alert[] | null;
+
+	try {
+		storedAlerts = (await chrome.storage.sync.get(ALERTS_STORAGE_KEY))[
+			ALERTS_STORAGE_KEY
+		];
+	} catch (e) {
+		workInProgress = false;
+		return;
+	}
+
+	if (storedAlerts) {
+		try {
+			chrome.storage.sync.set({
+				[ALERTS_STORAGE_KEY]: storedAlerts.filter((alert) => alert.id !== id),
+			});
+		} catch (e) {
+			workInProgress = false;
+			return;
+		}
+	}
+
+	log("Alert removed.");
+
+	workInProgress = false;
+};
+
 chrome.runtime.onMessage.addListener(
 	(
-		message: Pick<Alert, "organisation" | "repository" | "pullRequest">,
+		message:
+			| ({ type: "new-alert" } & Pick<
+					Alert,
+					"organisation" | "repository" | "pullRequest"
+			  >)
+			| { type: "remove-alert"; id: string },
 		_,
 		sendResponse,
 	) => {
 		log("Message received:");
 		log(message);
 
-		chrome.storage.sync
-			.get(ALERTS_STORAGE_KEY)
-			.then(({ [ALERTS_STORAGE_KEY]: storedAlerts }) => {
-				const alerts: Alert[] = Array.isArray(storedAlerts) ? storedAlerts : [];
+		if (message.type === "new-alert") {
+			const id = `${message.organisation}--${message.repository}--${message.pullRequest}`;
 
-				const newAlertId = `${message.organisation}--${message.repository}--${message.pullRequest}`;
+			createAlert(
+				{
+					id,
+					organisation: message.organisation,
+					repository: message.repository,
+					pullRequest: message.pullRequest,
+				},
+				sendResponse,
+			);
+		} else if (message.type === "remove-alert") {
+			removeAlert(message.id);
+		}
 
-				if (alerts.filter(({ id }) => id === newAlertId).length) {
-					log("Alert already exists.");
-					sendResponse({ alreadyExists: true });
-					return;
-				}
-
-				const newAlert = { ...message, id: newAlertId };
-
-				const newAlerts = [newAlert, ...alerts];
-
-				log("Alerts are now:");
-				log(newAlerts);
-
-				chrome.storage.sync
-					.set({ [ALERTS_STORAGE_KEY]: newAlerts })
-					.then(() => {
-						getAuthToken(true)
-							.then((authToken) =>
-								processAlert(newAlert, authToken, true)
-									.then(() => {
-										chrome.storage.sync.set({
-											[ALERTS_STORAGE_KEY]: newAlerts,
-										});
-										sendResponse({ confirmed: true });
-									})
-									.catch((e) => {
-										sendResponse({
-											error: e,
-											message:
-												"Error. The page you're on might have been incorrectly recognised as a pull request.",
-										});
-									}),
-							)
-							.catch((e) => {
-								sendResponse({
-									error: e,
-									message:
-										"Error. BitBucket credentials are missing. Open the extension's dialog.",
-								});
-							});
-					});
-			})
-			.catch((e) => sendResponse({ error: e }));
-
-		return true; // to be able to use `sendResponse` asynchronously
+		return true;
 	},
 );
 
@@ -116,7 +241,7 @@ const notify = (
 	message: string,
 	negative?: boolean,
 	action?: { title: string; link: string },
-) => {
+) =>
 	chrome.storage.sync
 		.get(REQUIRE_INTERACTION_STORAGE_KEY)
 		.then(({ [REQUIRE_INTERACTION_STORAGE_KEY]: requireInteraction }) => {
@@ -133,7 +258,6 @@ const notify = (
 				...(action && !firefox ? { buttons: [{ title: action.title }] } : {}),
 			});
 		});
-};
 
 chrome.notifications.onButtonClicked.addListener((notificationId) =>
 	chrome.tabs.create({ url: notificationId }),
@@ -154,7 +278,7 @@ const getAuthToken = async (throwOnError?: boolean): Promise<string> => {
 	return btoa(`${username}:${appPassword}`);
 };
 
-const processAlert = async (
+const processAlertInPlace = async (
 	alert: Alert,
 	authToken: string,
 	throwOnError?: boolean,
@@ -169,34 +293,40 @@ const processAlert = async (
 		return;
 	}
 
+	const age = alert.lastChange ? now - alert.lastChange : 0;
+
+	const _30m = 1e3 * 60 * 30;
+	const _12h = 1e3 * 60 * 60 * 12;
+	const _30d = 1e3 * 60 * 60 * 24 * 30;
+
+	log(`Pull request age is ${age}`);
+
 	if (
 		alert.pullRequestState === "MERGED" &&
 		alert.buildState === "SUCCESSFUL"
 	) {
-		log("Pull request is merged and build it complete. Exiting.");
+		if (age > _30d) {
+			alert.toBeDeleted = true;
+			log(
+				"Pull request is merged, build is complete, alert is old so will be deleted. Exiting.",
+			);
+		} else {
+			log("Pull request is merged and build is complete. Exiting.");
+		}
+
 		return;
 	}
-
-	const age =
-		!alert.lastChange || now - alert.lastChange < 30 * 60 * 1e3
-			? "<30m"
-			: now - alert.lastChange < 12 * 60 * 60 * 1e3
-			? "<12h"
-			: now - alert.lastChange < 30 * 24 * 60 * 60 * 1e3
-			? "<30d"
-			: "old";
-
-	log(`Pull request age is ${age}`);
 
 	const minutes = new Date().getMinutes();
 
 	if (
-		age === "old" ||
-		(age === "<30d" && minutes !== 0) ||
-		(age === "<12h" && minutes % 5 !== 0)
+		age > _30d ||
+		(age > _12h && minutes !== 0) ||
+		(age > _30m && minutes % 5 !== 0)
 	) {
-		if (age === "old") {
+		if (age > _30d) {
 			alert.old = true;
+			log(`Alert marked as old.`);
 		}
 
 		log(`Delaying request. Exiting.`);
@@ -362,9 +492,59 @@ const processAlert = async (
 			log(`Merge commit build state is now: ${newBuildState}`);
 
 			if (newBuildState !== "INPROGRESS") {
+				if (newBuildState === "SUCCESSFUL") {
+					let tagsRes: Response;
+
+					try {
+						tagsRes = await fetch(
+							`${BASE_API_URL}/${alert.organisation}/${alert.repository}/refs/tags?sort=-name`,
+							{
+								method: "GET",
+								headers: {
+									Authorization: `Basic ${authToken}`,
+									Accept: "application/json",
+								},
+							},
+						);
+					} catch (e) {
+						if (throwOnError) {
+							throw e;
+						}
+
+						return;
+					}
+
+					if (tagsRes.status !== 200) {
+						if (throwOnError) {
+							throw new Error("BitBucket response isn't 200");
+						}
+
+						return;
+					}
+
+					const tags: BitBucketTags = await tagsRes.json();
+
+					log("Tags are:");
+					log(tags);
+
+					const newTag = tags.values.filter(
+						(tag) =>
+							tag.target.type === "commit" &&
+							alert.mergeCommitHash &&
+							(tag.target.hash.startsWith(alert.mergeCommitHash) ||
+								alert.mergeCommitHash.startsWith(tag.target.hash)),
+					)[0]?.name;
+
+					if (newTag) {
+						alert.buildTag = newTag;
+					}
+				}
+
 				notify(
 					newBuildState === "SUCCESSFUL" ? "Build complete" : "Build failed!",
-					`${alert.repository}\n${alert.destinationBranch}`,
+					`${alert.repository}\n${alert.destinationBranch}${
+						alert.buildTag ? `\n${alert.buildTag}` : ""
+					}`,
 					newBuildState === "SUCCESSFUL" ? undefined : true,
 					newBuildState === "SUCCESSFUL"
 						? {
@@ -378,8 +558,6 @@ const processAlert = async (
 	}
 };
 
-let workInProgress = false;
-
 setInterval(async () => {
 	log("Starting work...");
 
@@ -389,9 +567,17 @@ setInterval(async () => {
 
 	workInProgress = true;
 
-	const alerts: Alert[] = (await chrome.storage.sync.get(ALERTS_STORAGE_KEY))[
-		ALERTS_STORAGE_KEY
-	];
+	let alerts: Alert[];
+
+	try {
+		alerts = (await chrome.storage.sync.get(ALERTS_STORAGE_KEY))[
+			ALERTS_STORAGE_KEY
+		];
+	} catch (e) {
+		log(e);
+		workInProgress = false;
+		return;
+	}
 
 	log("Alerts");
 	log(alerts);
@@ -405,10 +591,18 @@ setInterval(async () => {
 	const authToken = await getAuthToken();
 
 	for (const alert of alerts) {
-		await processAlert(alert, authToken);
+		await processAlertInPlace(alert, authToken);
 	}
 
-	chrome.storage.sync.set({ [ALERTS_STORAGE_KEY]: alerts });
+	try {
+		chrome.storage.sync.set({
+			[ALERTS_STORAGE_KEY]: alerts.filter(({ toBeDeleted }) => !toBeDeleted),
+		});
+	} catch (e) {
+		log(e);
+		workInProgress = false;
+		return;
+	}
 
 	log("Finished!");
 
