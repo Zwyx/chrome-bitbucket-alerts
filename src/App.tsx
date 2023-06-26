@@ -138,7 +138,9 @@ function App() {
 				iconUrl: "favicon-green.png",
 				title: "Hello!",
 				message: "Hope you like it.",
-				requireInteraction,
+				...(navigator.userAgent.toLowerCase().indexOf("firefox") > -1
+					? {}
+					: { requireInteraction }),
 			});
 		} else {
 			alert("Notifications seem unavailable");
