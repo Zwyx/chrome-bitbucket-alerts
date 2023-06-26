@@ -132,6 +132,8 @@ function App() {
 		[],
 	);
 
+	const firefox = navigator.userAgent.toLowerCase().indexOf("firefox") > -1;
+
 	const notify = useCallback(() => {
 		if (chrome.notifications) {
 			chrome.notifications.create({
@@ -139,14 +141,12 @@ function App() {
 				iconUrl: "favicon-green.png",
 				title: "Hello!",
 				message: "Hope you like it.",
-				...(navigator.userAgent.toLowerCase().indexOf("firefox") > -1
-					? {}
-					: { requireInteraction }),
+				...(firefox ? {} : { requireInteraction }),
 			});
 		} else {
 			alert("Notifications seem unavailable");
 		}
-	}, [requireInteraction]);
+	}, [firefox, requireInteraction]);
 
 	const removeAlert = useCallback(
 		(id: string) => {
@@ -237,16 +237,23 @@ function App() {
 						/>
 					</div>
 
-					<div className="flex items-center">
+					<div className="flex items-center" title="Unavailable on Firefox">
 						<input
 							id="requireInteraction"
 							type="checkbox"
 							className="flex-0 mr-2 rounded border"
-							checked={requireInteraction}
+							disabled={firefox}
+							checked={!firefox && requireInteraction}
 							onChange={(e) => updateRequireInteraction(e.target.checked)}
 						/>
 
-						<label htmlFor="requireInteraction" className="flex-1 select-none">
+						<label
+							htmlFor="requireInteraction"
+							className={cn(
+								"flex-1 select-none",
+								firefox && "text-gray-600 dark:text-gray-400",
+							)}
+						>
 							Notifications require interaction
 						</label>
 
