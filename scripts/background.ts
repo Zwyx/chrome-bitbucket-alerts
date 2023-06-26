@@ -7,6 +7,7 @@ const REQUIRE_INTERACTION_STORAGE_KEY =
 	"chrome-bitbucket-alerts-require-interaction";
 
 const BASE_API_URL = "https://api.bitbucket.org/2.0/repositories";
+const BASE_PULL_REQUEST_URL = "https://bitbucket.org";
 
 interface BitBucketPullRequest {
 	source: { branch: { name: string } };
@@ -34,6 +35,7 @@ interface Alert {
 	buildState?: BitBucketBuild["state"];
 	mergeCommitHash?: string;
 	lastChange?: number;
+	old?: boolean;
 }
 
 // Dodgy way of differentiating Chrome and Firefox
@@ -157,7 +159,7 @@ const processAlert = async (
 	authToken: string,
 	throwOnError?: boolean,
 ) => {
-	const seconds = new Date().getSeconds();
+	const now = Date.now();
 
 	log("Processing alert:");
 	log(alert);
@@ -167,12 +169,20 @@ const processAlert = async (
 		return;
 	}
 
+	if (
+		alert.pullRequestState === "MERGED" &&
+		alert.buildState === "SUCCESSFUL"
+	) {
+		log("Pull request is merged and build it complete. Exiting.");
+		return;
+	}
+
 	const age =
-		!alert.lastChange || seconds - alert.lastChange < 4_3200
+		!alert.lastChange || now - alert.lastChange < 30 * 60 * 1e3
+			? "<30m"
+			: now - alert.lastChange < 12 * 60 * 60 * 1e3
 			? "<12h"
-			: seconds - alert.lastChange < 60_4800
-			? "<7d"
-			: seconds - alert.lastChange < 2_592e3
+			: now - alert.lastChange < 30 * 24 * 60 * 60 * 1e3
 			? "<30d"
 			: "old";
 
@@ -183,8 +193,12 @@ const processAlert = async (
 	if (
 		age === "old" ||
 		(age === "<30d" && minutes !== 0) ||
-		(age === "<7d" && minutes % 10 !== minutes / 10)
+		(age === "<12h" && minutes % 5 !== 0)
 	) {
+		if (age === "old") {
+			alert.old = true;
+		}
+
 		log(`Delaying request. Exiting.`);
 		return;
 	}
@@ -272,7 +286,7 @@ const processAlert = async (
 
 			if (newBuildState && newBuildState !== alert.buildState) {
 				alert.buildState = newBuildState;
-				alert.lastChange = seconds;
+				alert.lastChange = now;
 
 				log(`Pull request build state is now: ${newBuildState}`);
 
@@ -281,6 +295,10 @@ const processAlert = async (
 						newBuildState === "SUCCESSFUL" ? "Build complete" : "Build failed!",
 						`${alert.repository}\n${alert.sourceBranch}`,
 						newBuildState === "SUCCESSFUL" ? undefined : true,
+						{
+							title: "Open in BitBucket",
+							link: `${BASE_PULL_REQUEST_URL}/${alert.organisation}/${alert.repository}/pull-requests/${alert.pullRequest}`,
+						},
 					);
 				}
 			}
@@ -289,7 +307,7 @@ const processAlert = async (
 
 			alert.pullRequestState = pullRequest.state;
 			alert.buildState = undefined;
-			alert.lastChange = seconds;
+			alert.lastChange = now;
 
 			if (pullRequest.state === "MERGED") {
 				alert.mergeCommitHash = pullRequest.merge_commit.hash;
@@ -339,7 +357,7 @@ const processAlert = async (
 
 		if (newBuildState && newBuildState !== alert.buildState) {
 			alert.buildState = newBuildState;
-			alert.lastChange = seconds;
+			alert.lastChange = now;
 
 			log(`Merge commit build state is now: ${newBuildState}`);
 
@@ -350,7 +368,7 @@ const processAlert = async (
 					newBuildState === "SUCCESSFUL" ? undefined : true,
 					newBuildState === "SUCCESSFUL"
 						? {
-								title: "Open Octopus",
+								title: "Open in Octopus",
 								link: `https://octopus.${alert.organisation}.io/app#/Spaces-1/projects/${alert.repository}/overview`,
 						  }
 						: undefined,

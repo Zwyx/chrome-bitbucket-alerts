@@ -38,6 +38,7 @@ interface Alert {
 	buildState?: BitBucketBuild["state"];
 	mergeCommitHash?: string;
 	lastChange?: number;
+	old?: boolean;
 }
 
 function App() {
@@ -268,7 +269,10 @@ function App() {
 						>
 							<div className="flex flex-1 flex-col">
 								<div className="flex">
-									<div className="flex-1 text-sm">{alert.repository}</div>
+									<div className="flex-1 text-sm">
+										{alert.old ? "[Inactive because older than 30 days] " : ""}
+										{alert.repository}
+									</div>
 
 									<div
 										className={cn(
