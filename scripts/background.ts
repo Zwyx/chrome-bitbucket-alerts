@@ -10,7 +10,7 @@ const BASE_API_URL = "https://api.bitbucket.org/2.0/repositories";
 const BASE_PULL_REQUEST_URL = "https://bitbucket.org";
 
 interface BitBucketPullRequest {
-	source: { branch: { name: string } };
+	source: { branch: { name: string }; commit: { hash: string } };
 	destination: { branch: { name: string } };
 	state: "OPEN" | "MERGED" | "DECLINED";
 	merge_commit: { hash: string };
@@ -21,7 +21,7 @@ interface BitBucketBuild {
 }
 
 interface BitBucketStatuses {
-	values: BitBucketBuild[];
+	values: (BitBucketBuild | undefined)[]; // the addition of `undefined` is to provide the behaviour of noUncheckedIndexedAccess in the editor (because it's configured in the separate `tsconfig.scripts.json` which is active at build time only)
 }
 
 interface BitBucketTag {
@@ -30,7 +30,7 @@ interface BitBucketTag {
 }
 
 interface BitBucketTags {
-	values: BitBucketTag[];
+	values: (BitBucketTag | undefined)[]; // the addition of `undefined` is to provide the behaviour of noUncheckedIndexedAccess in the editor (because it's configured in the separate `tsconfig.scripts.json` which is active at build time only)
 }
 
 interface Alert {
@@ -40,6 +40,7 @@ interface Alert {
 	pullRequest: string;
 	sourceBranch?: string;
 	destinationBranch?: string;
+	commitHash?: string;
 	pullRequestState?: BitBucketPullRequest["state"];
 	buildState?: BitBucketBuild["state"];
 	mergeCommitHash?: string;
@@ -76,7 +77,7 @@ const waitForRunwayClear = () =>
 				clearInterval(interval);
 				resolve();
 			}
-		}, 1e3);
+		}, 100);
 	});
 
 const createAlert = async (
@@ -293,13 +294,28 @@ const processAlertInPlace = async (
 		return;
 	}
 
+	if (alert.old) {
+		log("Pull request is old. Exiting.");
+		return;
+	}
+
 	const age = alert.lastChange ? now - alert.lastChange : 0;
 
-	const _30m = 1e3 * 60 * 30;
+	const _1h = 1e3 * 60 * 60;
 	const _12h = 1e3 * 60 * 60 * 12;
 	const _30d = 1e3 * 60 * 60 * 24 * 30;
 
-	log(`Pull request age is ${age}`);
+	log(
+		`Pull request age is ${age}, ${
+			age > _30d
+				? "> 30 days"
+				: age > _12h
+				? "> 12 hours"
+				: age > _1h
+				? "> 1 hour"
+				: "< 1 hour"
+		}`,
+	);
 
 	if (
 		alert.pullRequestState === "MERGED" &&
@@ -319,11 +335,7 @@ const processAlertInPlace = async (
 
 	const minutes = new Date().getMinutes();
 
-	if (
-		age > _30d ||
-		(age > _12h && minutes !== 0) ||
-		(age > _30m && minutes % 5 !== 0)
-	) {
+	if ((age > _12h && minutes !== 0) || (age > _1h && minutes % 5 !== 0)) {
 		if (age > _30d) {
 			alert.old = true;
 			log(`Alert marked as old.`);
@@ -370,9 +382,26 @@ const processAlertInPlace = async (
 		log("Pull request is:");
 		log(pullRequest);
 
-		alert.pullRequestState = pullRequest.state;
-		alert.sourceBranch = pullRequest.source.branch.name;
-		alert.destinationBranch = pullRequest.destination.branch.name;
+		const newCommitHash = pullRequest.source.commit.hash;
+
+		const commitHashHasChanged = alert.commitHash !== newCommitHash;
+
+		if (commitHashHasChanged) {
+			log(`Pull request commit hash has changed and is now: ${newCommitHash}`);
+		}
+
+		if (
+			alert.pullRequestState !== pullRequest.state ||
+			alert.sourceBranch !== pullRequest.source.branch.name ||
+			alert.destinationBranch !== pullRequest.destination.branch.name ||
+			commitHashHasChanged
+		) {
+			alert.pullRequestState = pullRequest.state;
+			alert.sourceBranch = pullRequest.source.branch.name;
+			alert.destinationBranch = pullRequest.destination.branch.name;
+			alert.commitHash = newCommitHash;
+			alert.lastChange = now;
+		}
 
 		if (pullRequest.state === "OPEN") {
 			log("Requesting pull request statuses...");
@@ -414,23 +443,30 @@ const processAlertInPlace = async (
 
 			const newBuildState = pullRequestStatuses.values[0]?.state;
 
-			if (newBuildState && newBuildState !== alert.buildState) {
+			const buildStateHasChanged = alert.buildState !== newBuildState;
+
+			if (buildStateHasChanged) {
+				log(
+					`Pull request build state has changed and is now: ${newBuildState}`,
+				);
 				alert.buildState = newBuildState;
 				alert.lastChange = now;
+			}
 
-				log(`Pull request build state is now: ${newBuildState}`);
-
-				if (newBuildState !== "INPROGRESS") {
-					notify(
-						newBuildState === "SUCCESSFUL" ? "Build complete" : "Build failed!",
-						`${alert.repository}\n${alert.sourceBranch}`,
-						newBuildState === "SUCCESSFUL" ? undefined : true,
-						{
-							title: "Open in BitBucket",
-							link: `${BASE_PULL_REQUEST_URL}/${alert.organisation}/${alert.repository}/pull-requests/${alert.pullRequest}`,
-						},
-					);
-				}
+			if (
+				newBuildState &&
+				(commitHashHasChanged || buildStateHasChanged) &&
+				newBuildState !== "INPROGRESS"
+			) {
+				notify(
+					newBuildState === "SUCCESSFUL" ? "Build complete" : "Build failed!",
+					`${alert.repository}\n${alert.sourceBranch}`,
+					newBuildState === "SUCCESSFUL" ? undefined : true,
+					{
+						title: "Open in BitBucket",
+						link: `${BASE_PULL_REQUEST_URL}/${alert.organisation}/${alert.repository}/pull-requests/${alert.pullRequest}`,
+					},
+				);
 			}
 		} else {
 			log(`Pull request is now: ${pullRequest.state}`);
@@ -529,6 +565,7 @@ const processAlertInPlace = async (
 
 					const newTag = tags.values.filter(
 						(tag) =>
+							tag &&
 							tag.target.type === "commit" &&
 							alert.mergeCommitHash &&
 							(tag.target.hash.startsWith(alert.mergeCommitHash) ||
@@ -607,4 +644,4 @@ setInterval(async () => {
 	log("Finished!");
 
 	workInProgress = false;
-}, 30e3);
+}, 59e3); // a margin to make sure we don't miss the 0th minute
