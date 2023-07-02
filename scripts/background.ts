@@ -6,6 +6,8 @@ const APP_PASSWORD_STORAGE_KEY = "chrome-bitbucket-alerts-app-password";
 const REQUIRE_INTERACTION_STORAGE_KEY =
 	"chrome-bitbucket-alerts-require-interaction";
 
+const ALARM_NAME = "main-task";
+
 const BASE_API_URL = "https://api.bitbucket.org/2.0/repositories";
 const BASE_PULL_REQUEST_URL = "https://bitbucket.org";
 
@@ -70,6 +72,7 @@ const waitForRunwayClear = () =>
 
 		log("Runway busy");
 
+		// It seems that service workers are paused after 30 seconds of inactivity, so we shouldn't need to set up an alarm here
 		const interval = setInterval(() => {
 			log("Waiting for runway to clear...");
 
@@ -595,7 +598,11 @@ const processAlertInPlace = async (
 	}
 };
 
-setInterval(async () => {
+chrome.alarms.create(ALARM_NAME, {
+	periodInMinutes: 0.99, // a margin to make sure we don't miss the 0th minute
+});
+
+chrome.alarms.onAlarm.addListener(async () => {
 	log("Starting work...");
 
 	if (workInProgress) {
@@ -644,4 +651,4 @@ setInterval(async () => {
 	log("Finished!");
 
 	workInProgress = false;
-}, 59e3); // a margin to make sure we don't miss the 0th minute
+});

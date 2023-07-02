@@ -6,7 +6,7 @@
 		"128": "favicon-green.png"
 	},
 	"manifest_version": 3,
-	"permissions": ["storage", "notifications"],
+	"permissions": ["storage", "alarms", "notifications"],
 	"action": {
 		"default_popup": "index.html",
 		"default_title": "BitBucket Build Alerts"
