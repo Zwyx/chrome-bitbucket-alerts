@@ -306,6 +306,7 @@ const processAlertInPlace = async (
 
 	const _1h = 1e3 * 60 * 60;
 	const _12h = 1e3 * 60 * 60 * 12;
+	const _7d = 1e3 * 60 * 60 * 24 * 7;
 	const _30d = 1e3 * 60 * 60 * 24 * 30;
 
 	log(
@@ -324,10 +325,10 @@ const processAlertInPlace = async (
 		alert.pullRequestState === "MERGED" &&
 		alert.buildState === "SUCCESSFUL"
 	) {
-		if (age > _30d) {
+		if (age > _7d) {
 			alert.toBeDeleted = true;
 			log(
-				"Pull request is merged, build is complete, alert is old so will be deleted. Exiting.",
+				"Pull request is merged, build is complete, alert is older than 7 days so will be deleted. Exiting.",
 			);
 		} else {
 			log("Pull request is merged and build is complete. Exiting.");
