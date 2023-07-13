@@ -108,14 +108,11 @@ const createAlert = async (
 
 	const alerts: Alert[] = Array.isArray(storedAlerts) ? storedAlerts : [];
 
-	if (alerts.filter(({ id }) => id === newAlert.id).length) {
-		log("Alert already exists.");
-		sendResponse({ alreadyExists: true });
-		workInProgress = false;
-		return;
-	}
-
-	const newAlerts = [newAlert, ...alerts];
+	// Recreate the alert if it already exists, in order to reset its age
+	const newAlerts = [
+		newAlert,
+		...alerts.filter(({ id }) => id !== newAlert.id),
+	];
 
 	log("Alerts are now:");
 	log(newAlerts);

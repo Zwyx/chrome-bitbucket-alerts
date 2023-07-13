@@ -68,7 +68,7 @@ new MutationObserver(() => {
 						button.disabled = false;
 						button.classList.remove(SPIN_CLASS);
 
-						if (res.confirmed || res.alreadyExists) {
+						if (res.confirmed) {
 							button.innerHTML = CHECK_ICON;
 						} else {
 							button.innerHTML = BELL_ICON;
