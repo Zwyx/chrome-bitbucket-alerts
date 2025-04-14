@@ -5,10 +5,10 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"build": "tsc && vite build && tsc -p tsconfig.scripts.json",
+		"build": "npm run lint && tsc && vite build && tsc -p tsconfig.scripts.json",
 		"pack:chrome": "npm run build && cd dist && 7z a chrome-bitbucket-alerts.zip *",
 		"pack:firefox": "npm run build && cp firefox/* dist && cd dist && 7z a chrome-bitbucket-alerts.xpi *",
-		"lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+		"lint": "eslint src scripts --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
 		"preview": "vite preview",
 		"eslint": "eslint .",
 		"eslint:print-active-rules": "eslint --print-config src/pages/_app.tsx",
