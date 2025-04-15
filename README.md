@@ -2,7 +2,7 @@
 
 > This project has been made for a specific work environment. You might not be able to use it directly as is.
 
-This is a browser extension which adds a button on a BitBucket PR pages:
+This browser extension adds a button on a BitBucket PR page:
 
 <div align="center">
 
@@ -41,8 +41,8 @@ The extension's dialog lists the PRs your are receiving notifications for:
 
 ### Firefox
 
+- use the Developer or Nightly edition of Firefox,
 - run `npm run pack:firefox`,
-- use the the Developer or Nightly edition of Firefor,
 - open `about:config` and set `xpinstall.signatures.required` to `false`,
 - open `about:addons`,
 - click the cog wheel, `Install Add-on From File...`, and select the `xpi` file present in the `dist` folder created by the build command,
